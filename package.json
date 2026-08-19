@@ -1,6 +1,6 @@
 {
   "name": "@aihesa/ui-conversation-indexed",
-  "description": "Independent DeepSeek Harness conversation UI fork with a responsive turn and heading index",
+  "description": "Independent DeepSeek Harness conversation UI fork with a responsive index and answer regeneration",
   "version": "0.1.0-rc.7",
   "publishConfig": {
     "access": "public"

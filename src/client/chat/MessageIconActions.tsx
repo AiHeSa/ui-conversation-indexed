@@ -1,9 +1,9 @@
-// Shared IconActions chrome for user and assistant messages: copy
-// live, optional branch wiring, and an optional date-aware clock.
+// Shared IconActions chrome for user and assistant messages: copy,
+// optional regeneration and branch wiring, and a date-aware clock.
 
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
-  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, Tooltip, writeClipboard,
+  IconBranchOutline16, IconCheckOutline16, IconCopyOutline16, IconRefreshOutline16, Tooltip, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { formatLatencySeconds, formatMessageClock, formatRunDuration, formatTokensPerSecond } from './message-chrome.ts'
@@ -25,13 +25,15 @@ export interface MessageIconActionsProps {
   clock: 'start' | 'end'
   /** Fork the session at this message; omission hides the branch action. */
   onBranch?: (() => void) | undefined
+  /** Re-submit the original prompt, optionally extended by the popover draft. */
+  onRegenerate?: ((supplement: string) => Promise<void>) | undefined
   /** The message is not a completed transcript tail, so branch stays visible but unavailable. */
   branchUnavailable?: boolean | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
   /**
-   * Slot-rendered actions owned by independent plugins, placed between the
-   * built-in copy and branch controls.
+   * Slot-rendered actions owned by independent plugins, placed before the
+   * built-in branch control.
    */
   extraActions?: ReactNode
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -39,12 +41,12 @@ export interface MessageIconActionsProps {
 }
 
 /**
- * Copy / branch (/ clock) IconActions row shared by user and assistant chrome.
- * @param props - Copy text, event time, clock side, branch callback, className.
+ * Copy / regenerate / branch (/ clock) actions shared by user and assistant chrome.
+ * @param props - Copy text, event time, clock side, callbacks, and className.
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className,
+  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, onRegenerate, branchUnavailable = false, className,
   extraActions, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
@@ -52,6 +54,13 @@ export function MessageIconActions({
   // Same success chrome as CodeBlock: a short check swap after the write,
   // gated so re-clicks during the window neither re-copy nor stack timers.
   const [copied, setCopied] = useState(false)
+  const [regenerateOpen, setRegenerateOpen] = useState(false)
+  const [supplement, setSupplement] = useState('')
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenerateFailed, setRegenerateFailed] = useState(false)
+  const regenerateRoot = useRef<HTMLDivElement | null>(null)
+  const regenerateButton = useRef<HTMLButtonElement | null>(null)
+  const regenerateEpoch = useRef(0)
   const copyPending = useRef(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copyEpoch = useRef(0)
@@ -59,7 +68,18 @@ export function MessageIconActions({
     copyEpoch.current += 1
     copyPending.current = false
     if (copyTimer.current !== null) clearTimeout(copyTimer.current)
+    regenerateEpoch.current += 1
   }, [])
+  useEffect(() => {
+    if (!regenerateOpen || regenerating) return
+    const closeOnOutside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && regenerateRoot.current?.contains(event.target) === true) return
+      setRegenerateOpen(false)
+      setRegenerateFailed(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutside)
+    return () => { document.removeEventListener('pointerdown', closeOnOutside) }
+  }, [regenerateOpen, regenerating])
   const onCopy = useCallback(() => {
     if (copied || copyPending.current) return
     const epoch = copyEpoch.current
@@ -75,6 +95,39 @@ export function MessageIconActions({
       }, 1000)
     })
   }, [copied, text])
+  const closeRegenerate = useCallback(() => {
+    if (regenerating) return
+    setRegenerateOpen(false)
+    setRegenerateFailed(false)
+    regenerateButton.current?.focus()
+  }, [regenerating])
+  const submitRegenerate = useCallback(() => {
+    if (onRegenerate === undefined || regenerating) return
+    const epoch = ++regenerateEpoch.current
+    setRegenerating(true)
+    setRegenerateFailed(false)
+    void onRegenerate(supplement).then(() => {
+      if (epoch !== regenerateEpoch.current) return
+      setRegenerating(false)
+      setRegenerateOpen(false)
+      setSupplement('')
+    }, () => {
+      if (epoch !== regenerateEpoch.current) return
+      setRegenerating(false)
+      setRegenerateFailed(true)
+    })
+  }, [onRegenerate, regenerating, supplement])
+  const onRegenerateKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeRegenerate()
+      return
+    }
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault()
+      submitRegenerate()
+    }
+  }, [closeRegenerate, submitRegenerate])
   // The dot is decorative and stays hidden, but its margins separate the
   // readings only on screen: without the flanking spaces a reader hears one
   // run-on string ("Ran for 13sTTFT 0.2s12 tok/s") instead of three facts.
@@ -115,6 +168,49 @@ export function MessageIconActions({
           {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
         </button>
       </Tooltip>
+      {onRegenerate !== undefined && (
+        <div className={css.regenerateRoot} ref={regenerateRoot}>
+          <Tooltip label={t('message.regenerate')} side="bottom" disabled={regenerateOpen}>
+            <button
+              ref={regenerateButton}
+              type="button"
+              className={css.action}
+              aria-label={t('message.regenerate')}
+              aria-haspopup="dialog"
+              aria-expanded={regenerateOpen}
+              onClick={() => {
+                setRegenerateOpen(open => !open)
+                setRegenerateFailed(false)
+              }}
+            >
+              <IconRefreshOutline16 />
+            </button>
+          </Tooltip>
+          {regenerateOpen && (
+            <div className={css.regenerateBubble} role="dialog" aria-label={t('message.regenerate.dialog')}>
+              <label className={css.regenerateLabel}>
+                {t('message.regenerate.supplement')}
+                <textarea
+                  autoFocus
+                  rows={3}
+                  value={supplement}
+                  placeholder={t('message.regenerate.placeholder')}
+                  disabled={regenerating}
+                  onChange={event => { setSupplement(event.currentTarget.value) }}
+                  onKeyDown={onRegenerateKeyDown}
+                />
+              </label>
+              {regenerateFailed && <p className={css.regenerateError} role="alert">{t('message.regenerate.failed')}</p>}
+              <div className={css.regenerateActions}>
+                <button type="button" disabled={regenerating} onClick={closeRegenerate}>{t('message.regenerate.cancel')}</button>
+                <button type="button" data-primary disabled={regenerating} onClick={submitRegenerate}>
+                  {regenerating ? t('message.regenerate.submitting') : t('message.regenerate.confirm')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {extraActions}
       {onBranch !== undefined && (
         <Tooltip label={branchUnavailable ? t('message.branchUnavailable') : t('message.branch')} side="bottom">

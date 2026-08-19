@@ -47,9 +47,21 @@ The cache-hit percentage is displayed with exactly two decimal places and is tru
 
 Integer arithmetic with `BigInt` is used to avoid floating-point rounding drift.
 
+### Regenerate a completed answer
+
+Every completed Assistant answer has a **Regenerate response** action immediately after Copy. Selecting it opens a compact popover where the user can add an optional clarification.
+
+- Confirming with an empty field re-submits the original turn-opening user prompt.
+- Confirming with text appends the trimmed clarification to the repeated prompt.
+- Images attached to the original prompt are read from the current session and included again.
+- `Ctrl+Enter` or `Command+Enter` confirms; `Escape`, Cancel, and an outside click close the popover.
+- A failed submission keeps the draft open and shows a retryable error.
+
+The repeated prompt is admitted as a new queued turn. It does not delete, edit, or fork the existing conversation history.
+
 ### What was not changed
 
-The original conversation behavior remains intact, including the conversation skeleton, chat rows, composer, queue, approval UI, details shell, session statistics, tool slots, plugin slots, streaming behavior, paging, and conversation controller.
+The original conversation behavior remains intact, including the conversation skeleton, chat rows, composer, queue, approval UI, details shell, session statistics, tool slots, plugin slots, streaming behavior, and paging. The conversation controller is extended only with the prompt-replay path described above.
 
 The index does not:
 
@@ -127,7 +139,7 @@ Add the project reference to `tsconfig.client.json`:
 }
 ```
 
-In `packages/bundle/web-app/package.json`, replace the original conversation dependency with a workspace alias:
+In both `apps/cli/package.json` and `packages/bundle/web-app/package.json`, add or replace the original conversation dependency with the same workspace alias:
 
 ```json
 {
@@ -145,6 +157,8 @@ Keep the existing `ui-conversation` Loader row unchanged:
 ```
 
 The alias supplies this fork at that established module id. Do not add a second conversation Loader row.
+
+The direct CLI alias is required because App Boot builds a flat installation fallback with first-resolution-wins semantics. Without it, another UI package that depends on the upstream conversation package can make the Loader resolve the original bundle even when `web-app` itself carries the alias.
 
 ### 3. Install and build
 
@@ -173,6 +187,7 @@ Open [http://127.0.0.1:3080/](http://127.0.0.1:3080/). On a sufficiently wide co
 4. Widen the conversation area until it reaches the responsive threshold.
 5. Select a turn card to locate that turn, or select a heading to locate the rendered section.
 6. Narrow the window or open a competing details panel; the index hides automatically when there is no longer enough readable width.
+7. After an answer completes, select **Regenerate response** beside Copy, optionally enter a clarification, and confirm to submit a new turn.
 
 No setting, database migration, API change, or remote configuration is required.
 
@@ -191,7 +206,7 @@ corepack pnpm exec vitest run packages/client/ui-conversation-indexed/tests
 corepack pnpm --filter @aihesa/ui-conversation-indexed run bundle
 ```
 
-The focused index tests cover turn cards, `H1`–`H3` nesting, `H4` exclusion, click navigation, responsive visibility, and destination marking.
+The focused tests cover turn cards, `H1`–`H3` nesting, `H4` exclusion, click navigation, responsive visibility, destination marking, blank and supplemented regeneration, durable image replay, keyboard confirmation, and failure feedback.
 
 ## Updating from upstream
 
@@ -215,11 +230,11 @@ See [LICENSE](LICENSE) for the full license and [NOTICE.md](NOTICE.md) for attri
 
 ## Model Experience
 
-None, as this package renders existing session history in the browser and does not assemble or send model requests.
+None, as this package registers no hidden prompt or tool; its explicit regenerate control only re-submits the selected user prompt, plus any user-entered clarification, as an ordinary new turn.
 
 #### KV Cache effect
 
-None. The conversation index and cache-hit display do not change provider request content or prompt caching behavior.
+The index and cache-hit display do not change provider requests. Regenerating repeats the original prompt content and therefore may reuse provider-side prefix caching, but cache behavior remains provider-dependent; a non-empty clarification changes the repeated request suffix.
 
 ## Known Limitations and Deferred Work
 
@@ -228,3 +243,4 @@ None. The conversation index and cache-hit display do not change provider reques
 - The package depends on the surrounding DeepSeek Harness workspace and is not a standalone application or independently installable npm plugin yet.
 - Compatibility is pinned to the documented upstream base revision; later Harness revisions may require a manual merge.
 - The responsive threshold and index width are currently compile-time CSS values rather than user settings.
+- Regeneration requires the selected turn's opening user message to be present in the currently loaded conversation window.

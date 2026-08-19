@@ -38,6 +38,74 @@ async function bench(readAttachment?: SessionFace['readAttachment']) {
 }
 
 describe('ConversationController', () => {
+  it('replays the direct user prompt, durable images, and trimmed supplement', async () => {
+    const b = await bench()
+    const attachment = {
+      attachmentId: AttachmentId('image-repeat'), mediaType: 'image/png', bytes: 3, width: 1, height: 1,
+      name: 'reference.png',
+    } as const
+    const readAttachment = vi.fn<SessionFace['readAttachment']>(() => Promise.resolve({
+      ok: true,
+      value: { attachment, data: Uint8Array.of(1, 2, 3) },
+    }))
+    const prompt = vi.fn<SessionFace['prompt']>(() => Promise.resolve({
+      ok: true, value: { accepted: true },
+    }))
+    const session = {
+      getSnapshot: () => ({
+        chat: {
+          order: ['turn-user'],
+          nodes: new Map([['turn-user', {
+            key: 'turn-user', kind: 'user',
+            location: { kind: 'turn', turn: { turn: 7 } },
+            data: {
+              content: [
+                { type: 'text', text: '解释这张图' },
+                { type: 'image', attachment },
+              ],
+            },
+          }]]),
+        },
+      }),
+      readAttachment,
+      prompt,
+    } as unknown as SessionFace
+
+    await b.root.regenerateTurn(session, 7, '  只保留结论  ')
+
+    expect(readAttachment).toHaveBeenCalledWith(attachment.attachmentId)
+    expect(prompt).toHaveBeenCalledWith([
+      { type: 'text', text: '解释这张图' },
+      { type: 'image', mediaType: 'image/png', data: 'AQID', name: 'reference.png' },
+      { type: 'text', text: '\n\n只保留结论' },
+    ], 'queue')
+    await b.runtime.dispose()
+  })
+
+  it('replays the original prompt unchanged when the supplement is blank', async () => {
+    const b = await bench()
+    const prompt = vi.fn<SessionFace['prompt']>(() => Promise.resolve({
+      ok: true, value: { accepted: true },
+    }))
+    const session = {
+      getSnapshot: () => ({
+        chat: {
+          order: ['turn-user'],
+          nodes: new Map([['turn-user', {
+            key: 'turn-user', kind: 'user',
+            location: { kind: 'turn', turn: { turn: 2 } },
+            data: { content: [{ type: 'text', text: '原问题' }] },
+          }]]),
+        },
+      }),
+      prompt,
+    } as unknown as SessionFace
+
+    await b.root.regenerateTurn(session, 2, '   ')
+    expect(prompt).toHaveBeenCalledWith([{ type: 'text', text: '原问题' }], 'queue')
+    await b.runtime.dispose()
+  })
+
   it('routes operations through the public Session binding', async () => {
     const b = await bench()
     await b.scoped.send('hello')

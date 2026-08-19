@@ -162,6 +162,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  const regenerateTurn = vi.fn<(turn: number, supplement: string) => Promise<void>>(() => Promise.resolve())
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
   const chat = createChatStore().create()
@@ -287,6 +288,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     inspectCall,
     chatScroll,
     forkAt,
+    regenerateTurn,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -295,7 +297,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
   return {
     set, ChatView, props, openDetails, openFile, loadOlder, inspectCall,
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, regenerateTurn, setSelection, toolOwners,
   }
 }
 
@@ -656,6 +658,49 @@ describe('ChatView', () => {
     const branchButtons = view.getAllByRole('button', { name: '在新对话中分支' })
     expect(branchButtons).toHaveLength(2)
     expect(branchButtons.map(button => button.getAttribute('aria-disabled'))).toEqual([null, null])
+    expect(view.getAllByRole('button', { name: '重新回答' })).toHaveLength(2)
+  })
+
+  it('re-submits a completed turn with an optional supplement from the answer action', async () => {
+    const h = makeHarness({
+      nodes: [user(1, '原问题'), assistant(2, '原回答')],
+      turnEnds: new Map([[1, 3]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '重新回答' }))
+    expect(view.getByRole('dialog', { name: '重新回答原问题' })).toBeTruthy()
+    const input = view.getByPlaceholderText('可留空，直接重新回答原问题')
+    fireEvent.change(input, { target: { value: '请更简洁' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    await vi.waitFor(() => {
+      expect(h.regenerateTurn).toHaveBeenCalledWith(1, '请更简洁')
+    })
+    await vi.waitFor(() => {
+      expect(view.queryByRole('dialog', { name: '重新回答原问题' })).toBeNull()
+    })
+
+    fireEvent.click(view.getByRole('button', { name: '重新回答' }))
+    fireEvent.click(view.getByRole('button', { name: '确认并重新提问' }))
+    await vi.waitFor(() => {
+      expect(h.regenerateTurn).toHaveBeenLastCalledWith(1, '')
+    })
+  })
+
+  it('keeps the regenerate bubble open and shows a retryable error when submission fails', async () => {
+    const h = makeHarness({
+      nodes: [user(1, '原问题'), assistant(2, '原回答')],
+      turnEnds: new Map([[1, 3]]),
+    })
+    h.regenerateTurn.mockRejectedValueOnce(new Error('network'))
+    const view = render(<h.ChatView {...h.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '重新回答' }))
+    fireEvent.click(view.getByRole('button', { name: '确认并重新提问' }))
+    expect((await view.findByRole('alert')).textContent).toBe('重新提问失败，请重试。')
+    expect(view.getByRole('dialog', { name: '重新回答原问题' })).toBeTruthy()
+    fireEvent.keyDown(view.getByPlaceholderText('可留空，直接重新回答原问题'), { key: 'Escape' })
+    expect(view.queryByRole('dialog', { name: '重新回答原问题' })).toBeNull()
   })
 
   it('withholds assistant IconActions while the turn is still running', () => {

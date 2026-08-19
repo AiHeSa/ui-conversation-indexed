@@ -15,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
+import type { ChatNode } from './contract/chat-nodes.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
 import type { DraftAttachmentId, SessionInputResolver } from './input/contract.ts'
@@ -154,6 +155,52 @@ export class ConversationController extends Service implements IConversation {
     const result = await session.prompt(content, mode)
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
     this.releaseDraftImages(attachments)
+  }
+
+  /**
+   * Re-submit the direct user message that opened one completed Turn. Durable
+   * images are read through the same session before they cross prompt admission
+   * again; an optional clarification is appended as text in the new message.
+   * @param session - target session and current conversation snapshot.
+   * @param turn - completed Turn whose direct user prompt should be repeated.
+   * @param supplement - optional user clarification; surrounding whitespace is ignored.
+   * @returns completion after Host prompt admission.
+   */
+  async regenerateTurn(session: SessionFace, turn: number, supplement: string): Promise<void> {
+    const snapshot = session.getSnapshot()
+    const original = snapshot.chat.order
+      .map(key => snapshot.chat.nodes.get(key))
+      .find(node => node?.kind === 'user'
+        && (node.location.kind === 'turn' || node.location.kind === 'step')
+        && node.location.turn.turn === turn) as ChatNode<'user'> | undefined
+    if (original === undefined || original.kind !== 'user') {
+      throw new Error(`conversation.regenerateTurn: Turn ${turn} has no direct user prompt in the loaded window`)
+    }
+    const content: Parameters<SessionFace['prompt']>[0] = []
+    for (const block of original.data.content) {
+      if (block.type === 'text') {
+        content.push({ type: 'text', text: block.text })
+        continue
+      }
+      if (block.type !== 'image') continue
+      const result = await session.readAttachment(block.attachment.attachmentId)
+      if (!result.ok) {
+        throw new Error(`conversation.regenerateTurn attachment failed: ${result.error.code}: ${result.error.message}`)
+      }
+      content.push({
+        type: 'image',
+        mediaType: result.value.attachment.mediaType,
+        data: bytesToBase64(result.value.data),
+        ...(result.value.attachment.name === undefined ? {} : { name: result.value.attachment.name }),
+      })
+    }
+    const clarification = supplement.trim()
+    if (clarification !== '') content.push({ type: 'text', text: `\n\n${clarification}` })
+    if (content.length === 0) throw new Error('conversation.regenerateTurn: prompt has no repeatable content')
+    const result = await session.prompt(content, 'queue')
+    if (!result.ok) {
+      throw new Error(`conversation.regenerateTurn failed: ${result.error.code}: ${result.error.message}`)
+    }
   }
 
   /**

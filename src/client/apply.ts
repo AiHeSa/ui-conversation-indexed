@@ -421,6 +421,11 @@ export function apply(ctx: Context): void {
               // Fork or child-rename failure keeps the source view untouched.
             })
         },
+        regenerateTurn: async (turn, supplement) => {
+          const session = sessions.binding(sessionId)?.session
+          if (session === undefined) throw new Error(`ui-conversation: session "${sessionId}" is unavailable`)
+          await conversation.regenerateTurn(session, turn, supplement)
+        },
       }
     },
   }, ChatView)

@@ -47,9 +47,21 @@
 
 实现使用 `BigInt` 整数运算，避免浮点数舍入误差。
 
+### 重新回答已完成的答案
+
+每个已完成的 Assistant 回答都会在“复制”按钮后显示“重新回答”按钮。点击后出现一个简约气泡，可以填写补充提问，也可以留空。
+
+- 留空确认时，原样重新提交该轮开头的用户问题；
+- 填写内容后确认时，会将去除首尾空白的补充内容追加到原问题中；
+- 原问题包含图片时，会从当前会话重新读取并一同提交；
+- 支持 `Ctrl+Enter` 或 `Command+Enter` 确认，支持 `Escape`、取消按钮和点击外部关闭；
+- 提交失败时保留气泡和输入内容，并显示可重试错误。
+
+重新回答会作为一个新的排队轮次提交，不会删除、修改或分支已有会话历史。
+
 ### 未修改的部分
 
-原有会话骨架、聊天消息行、编辑器、队列、审批界面、详情面板、会话统计、工具 slot、插件 slot、流式输出、历史分页和 ConversationController 行为均保持不变。
+原有会话骨架、聊天消息行、编辑器、队列、审批界面、详情面板、会话统计、工具 slot、插件 slot、流式输出和历史分页行为均保持不变。ConversationController 只增加了上述原问题重发路径。
 
 索引不会：
 
@@ -127,7 +139,7 @@ git clone https://github.com/AiHeSa/ui-conversation-indexed.git packages/client/
 }
 ```
 
-在 `packages/bundle/web-app/package.json` 中，把原对话依赖改成工作区别名：
+在 `apps/cli/package.json` 和 `packages/bundle/web-app/package.json` 中，都加入或替换为同一条原对话依赖的工作区别名：
 
 ```json
 {
@@ -145,6 +157,8 @@ git clone https://github.com/AiHeSa/ui-conversation-indexed.git packages/client/
 ```
 
 依赖别名会让该标识实际加载本修改版。不要再添加第二条对话 Loader 配置，否则会重复注册同一界面。
+
+必须同时设置 CLI 的直接别名，因为 App Boot 会按“首次解析优先”构建扁平的安装依赖回退目录。如果只修改 `web-app`，另一个依赖上游对话包的 UI 包仍可能让 Loader 解析到原版 bundle。
 
 ### 3. 安装并构建
 
@@ -173,6 +187,7 @@ corepack pnpm dsh web
 4. 把对话区域拉宽到响应式阈值以上。
 5. 点击轮次卡片可以定位到对应对话，点击标题可以定位到回答中的对应章节。
 6. 缩窄窗口或打开会占用空间的详情面板后，如果宽度不足，索引会自动隐藏。
+7. 回答完成后，点击“复制”右侧的“重新回答”，按需输入补充内容并确认，即可提交一个新轮次。
 
 该功能不需要增加设置、数据库迁移、API 修改或远端配置。
 
@@ -191,7 +206,7 @@ corepack pnpm exec vitest run packages/client/ui-conversation-indexed/tests
 corepack pnpm --filter @aihesa/ui-conversation-indexed run bundle
 ```
 
-索引相关测试覆盖轮次卡片、一级到三级标题层级、四级标题排除、点击定位、响应式显示和目标标记。
+相关测试覆盖轮次卡片、一级到三级标题层级、四级标题排除、点击定位、响应式显示、目标标记、留空或带补充的重新回答、历史图片重发、键盘确认和失败反馈。
 
 ## 跟进上游更新
 
@@ -215,11 +230,11 @@ corepack pnpm --filter @aihesa/ui-conversation-indexed run bundle
 
 ## 模型体验
 
-无。本包只在浏览器中渲染已有会话历史，不组装或发送模型请求。
+无，因为本包不会注册隐藏提示词或工具；用户主动点击“重新回答”时，只会把所选轮次的原问题和用户填写的补充内容作为普通新轮次提交。
 
 #### KV Cache 影响
 
-无。对话索引和缓存命中率显示不会改变提供方请求内容或提示词缓存行为。
+对话索引和缓存命中率显示不会改变提供方请求。“重新回答”会重复原始提示内容，因此可能复用提供方的前缀缓存，但实际缓存行为仍由提供方决定；填写补充内容会改变重复请求的尾部。
 
 ## 已知限制与后续工作
 
@@ -228,3 +243,4 @@ corepack pnpm --filter @aihesa/ui-conversation-indexed run bundle
 - 本包依赖外层 DeepSeek Harness 工作区，目前不是独立应用，也不是可以单独安装的 npm 插件。
 - 兼容性以文中记录的上游基准 revision 为准；更新版本可能需要人工合并。
 - 响应式阈值和索引宽度目前是 CSS 编译时常量，不是用户设置。
+- 重新回答要求所选轮次开头的用户消息仍位于当前已加载的会话窗口中。
