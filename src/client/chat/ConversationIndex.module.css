@@ -1,0 +1,115 @@
+.index {
+  display: none;
+}
+
+@container (min-width: 920px) {
+  .index {
+    position: sticky;
+    top: 16px;
+    z-index: 2;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    width: 224px;
+    max-height: calc(100dvh - var(--dsh-composer-height, 152px) - 116px);
+    overflow: hidden;
+    pointer-events: auto;
+  }
+}
+
+.title {
+  flex: none;
+  padding: 0 4px 10px;
+  color: var(--dsw-alias-label-caption);
+  font: var(--dsw-font-xs-13);
+  font-weight: 500;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.cards::-webkit-scrollbar {
+  display: none;
+}
+
+.card {
+  flex: none;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 94%, transparent);
+}
+
+.turn,
+.heading {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.turn {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 4px;
+  align-items: start;
+  padding: 2px 4px;
+  font: var(--dsw-font-s-strong-14);
+}
+
+.number {
+  color: var(--dsw-alias-label-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.turnLabel,
+.heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headings {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.heading {
+  padding: 3px 4px 3px 28px;
+  font: var(--dsw-font-xs-13);
+}
+
+.heading[data-depth='2'] {
+  padding-left: 38px;
+}
+
+.heading[data-depth='3'] {
+  padding-left: 48px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.turn:hover,
+.heading:hover {
+  border-radius: 5px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.turn:focus-visible,
+.heading:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
