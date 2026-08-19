@@ -13,6 +13,10 @@
 
 本项目与 DeepSeek 无隶属关系，也未获得 DeepSeek 官方背书。
 
+## 功能截图
+
+![DeepSeek Harness 长对话右侧显示对话索引](assets/conversation-index.jpg)
+
 ## 修改内容
 
 ### 响应式对话索引

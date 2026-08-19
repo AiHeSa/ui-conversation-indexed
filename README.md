@@ -13,6 +13,10 @@ An independent, unofficial fork of DeepSeek Harness's `ui-conversation` package.
 
 This project is not affiliated with or endorsed by DeepSeek.
 
+## Screenshot
+
+![Conversation index displayed beside a long DeepSeek Harness conversation](assets/conversation-index.jpg)
+
 ## What changed
 
 ### Responsive conversation index
