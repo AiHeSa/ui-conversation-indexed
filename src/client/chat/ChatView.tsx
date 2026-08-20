@@ -147,7 +147,7 @@ function TurnStatus({ startTime, t }: {
  * ordered business Node crosses the keyed renderer seat.
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
+  useSession, useSessions, useStore, actions, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
   regenerateTurn, fileMentions, t,
 }: ChatViewSlotProps) {
   const order = useSession(s => s.chat.order)
@@ -162,6 +162,8 @@ export function ChatView({
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
+  // Persisted snapshots created before this preference was added omit it.
+  const indexHidden = useStore(s => s.indexHidden ?? false)
 
   const pendingSteering = useMemo(
     () => inbox.filter(item => item.placement === 'steering'),
@@ -171,6 +173,10 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
+  const olderRef = useRef<HTMLDivElement | null>(null)
+  /** A visible sentinel may report repeatedly before the loading flag reaches
+   * React. Remember the current head so each rendered page auto-loads once. */
+  const autoLoadedHeadRef = useRef<number | null | undefined>(undefined)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
   /** Last position delivered or written on the main thread. */
@@ -365,9 +371,39 @@ export function ChatView({
     loadOlder()
   }
 
+  const toggleIndex = (): void => {
+    actions.setIndexHidden(!indexHidden)
+  }
+
+  // Loading older history behaves like an infinite-scroll sentinel. Reusing
+  // the anchored loader preserves the reader's position when the prepend
+  // lands. A changed head sequence permits the next still-visible page to
+  // load; a failed/empty page does not spin indefinitely.
+  useEffect(() => {
+    const local = listRef.current
+    const sentinel = olderRef.current
+    if (
+      !hasMore || loadingOlder || local === null || sentinel === null ||
+      typeof IntersectionObserver === 'undefined'
+    ) return
+    const observedHead = firstSeq
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some(entry => entry.isIntersecting)) return
+      if (autoLoadedHeadRef.current === observedHead) return
+      autoLoadedHeadRef.current = observedHead
+      observer.disconnect()
+      loadOlderAnchored()
+    }, {
+      root: scrollerOf(local),
+      threshold: 0,
+    })
+    observer.observe(sentinel)
+    return () => { observer.disconnect() }
+  }, [firstSeq, hasMore, loadingOlder])
+
   return (
     <div className={css.root}>
-      <div className={css.layout}>
+      <div className={css.layout} data-index-hidden={indexHidden ? 'true' : undefined}>
         <div ref={listRef} className={css.scroll}>
           <div ref={columnRef} className={css.column} data-chat-flow="">
             {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
@@ -377,7 +413,7 @@ export function ChatView({
               </div>
             )}
             {hasMore && (
-              <div className={css.older}>
+              <div ref={olderRef} className={css.older}>
                 <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
                   {loadingOlder ? t('loading') : t('chat.loadOlder')}
                 </button>
@@ -427,7 +463,13 @@ export function ChatView({
             </div>
           )}
         </div>
-        <ConversationIndex flowRef={columnRef} revision={order} t={t} />
+        <ConversationIndex
+          flowRef={columnRef}
+          revision={order}
+          hidden={indexHidden}
+          onToggle={toggleIndex}
+          t={t}
+        />
       </div>
     </div>
   )

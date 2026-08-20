@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type {
   AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
   ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolCallBlock, ToolResultNode, TurnErrorNode,
@@ -23,6 +23,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
+import { ConversationIndex } from '../src/client/chat/ConversationIndex.tsx'
 import { zh } from '../src/client/locales.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
@@ -475,6 +476,122 @@ describe('ChatView', () => {
     fireEvent.click(within(index).getByRole('button', { name: '检查项' }))
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
     expect(heading.dataset.conversationIndexLocated).toBe('true')
+  })
+
+  it('ignores ordinary streaming text and coalesces heading rescans to one animation frame', () => {
+    let notify: MutationCallback | undefined
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    class MutationObserverStub {
+      constructor(callback: MutationCallback) { notify = callback }
+      observe = observe
+      disconnect = disconnect
+      takeRecords = (): MutationRecord[] => []
+    }
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('MutationObserver', MutationObserverStub)
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    }))
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+
+    function Fixture({ hidden = false }: { readonly hidden?: boolean }) {
+      const flowRef = useRef<HTMLDivElement>(null)
+      return <>
+        <div ref={flowRef}>
+          <div
+            data-chat-flow-key="user:1"
+            data-chat-flow-kind="user"
+            data-chat-turn="1"
+            data-chat-index-title="问题"
+          />
+          <div data-chat-flow-key="assistant:1" data-chat-flow-kind="assistant-step" data-chat-turn="1">
+            <p>普通正文</p>
+            <h2>原标题</h2>
+          </div>
+        </div>
+        <ConversationIndex
+          flowRef={flowRef}
+          revision={['user:1', 'assistant:1']}
+          hidden={hidden}
+          onToggle={vi.fn()}
+          t={makeTranslate(zh, commonZh)}
+        />
+      </>
+    }
+
+    const view = render(<Fixture />)
+    expect(observe).toHaveBeenCalledTimes(1)
+    const paragraph = view.getByText('普通正文')
+    const paragraphText = paragraph.firstChild as Text
+    paragraphText.nodeValue = '普通正文更新'
+    act(() => {
+      notify?.([{
+        type: 'characterData', target: paragraphText,
+      } as unknown as MutationRecord], {} as MutationObserver)
+    })
+    expect(frames).toHaveLength(0)
+
+    const heading = view.getByRole('heading', { name: '原标题' })
+    heading.textContent = '更新标题'
+    const headingText = heading.firstChild as Text
+    act(() => {
+      const record = { type: 'characterData', target: headingText } as unknown as MutationRecord
+      notify?.([record], {} as MutationObserver)
+      notify?.([record], {} as MutationObserver)
+    })
+    expect(frames).toHaveLength(1)
+    act(() => { frames.shift()?.(0) })
+    expect(view.getByRole('button', { name: '更新标题' })).toBeTruthy()
+
+    const appendedText = document.createTextNode('追加正文')
+    paragraph.appendChild(appendedText)
+    act(() => {
+      notify?.([{
+        type: 'childList', target: paragraph,
+        addedNodes: [appendedText], removedNodes: [],
+      } as unknown as MutationRecord], {} as MutationObserver)
+    })
+    expect(frames).toHaveLength(0)
+
+    const newHeading = document.createElement('h3')
+    newHeading.textContent = '新增标题'
+    heading.parentElement?.appendChild(newHeading)
+    act(() => {
+      notify?.([{
+        type: 'childList', target: heading.parentElement as Element,
+        addedNodes: [newHeading], removedNodes: [],
+      } as unknown as MutationRecord], {} as MutationObserver)
+    })
+    expect(frames).toHaveLength(1)
+    act(() => { frames.shift()?.(0) })
+    expect(view.getByRole('button', { name: '新增标题' })).toBeTruthy()
+
+    view.rerender(<Fixture hidden />)
+    expect(disconnect).toHaveBeenCalled()
+    expect(observe).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the conversation index and restores that preference from local storage', () => {
+    const nodes = [user(1, '整理发布计划'), assistant(2, '# 总览', 1)]
+    const first = makeHarness({ nodes, turnEnds: new Map([[1, 3]]) })
+    const view = render(<first.ChatView {...first.props} />)
+
+    fireEvent.click(view.getByRole('button', { name: '隐藏对话索引' }))
+    expect(localStorage.getItem('dsh.conversation.chat')).not.toBeNull()
+    expect(view.getByRole('button', { name: '显示对话索引' })).toBeTruthy()
+    expect(view.container.querySelector('[data-index-hidden="true"]')).toBeTruthy()
+    expect(view.queryByRole('button', { name: '01整理发布计划' })).toBeNull()
+
+    view.unmount()
+    const second = makeHarness({ nodes, turnEnds: new Map([[1, 3]]) })
+    const restored = render(<second.ChatView {...second.props} />)
+    expect(restored.getByRole('button', { name: '显示对话索引' })).toBeTruthy()
+
+    fireEvent.click(restored.getByRole('button', { name: '显示对话索引' }))
+    expect(restored.getByRole('button', { name: '隐藏对话索引' })).toBeTruthy()
+    expect(restored.getByRole('button', { name: '01整理发布计划' })).toBeTruthy()
   })
 
   it('renders Host-pending steering at the flow tail and hands off to the durable node', () => {
@@ -1303,6 +1420,34 @@ describe('ChatView', () => {
     expect(h.loadOlder).toHaveBeenCalledTimes(1)
     act(() => { h.set({ loadingOlder: true }) })
     expect(view.getByText('加载中…')).toBeTruthy()
+  })
+
+  it('automatically loads older history when its sentinel becomes visible', () => {
+    let notify: IntersectionObserverCallback | undefined
+    const observe = vi.fn()
+    const disconnect = vi.fn()
+    class IntersectionObserverStub {
+      readonly root = null
+      readonly rootMargin = '0px'
+      readonly thresholds = [0]
+      constructor(callback: IntersectionObserverCallback) { notify = callback }
+      observe = observe
+      disconnect = disconnect
+      unobserve = vi.fn()
+      takeRecords = (): IntersectionObserverEntry[] => []
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverStub)
+
+    const h = makeHarness({ nodes: [user(5, 'later')], hasMore: true })
+    render(<h.ChatView {...h.props} />)
+    expect(observe).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      notify?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+      notify?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+    })
+    expect(h.loadOlder).toHaveBeenCalledTimes(1)
+    expect(disconnect).toHaveBeenCalled()
   })
 
   it('shows open error and loading states', () => {

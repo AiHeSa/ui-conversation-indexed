@@ -10,9 +10,15 @@ beforeEach(() => {
 })
 
 describe('createChatStore', () => {
-  it('init shape: empty selection/draft/view', () => {
+  it('init shape: empty selection/draft/view with the index visible', () => {
     const store = createChatStore().create()
-    expect(store.store.getSnapshot()).toEqual({ selection: null, draft: '', view: null, inspect: null })
+    expect(store.store.getSnapshot()).toEqual({
+      selection: null,
+      draft: '',
+      view: null,
+      inspect: null,
+      indexHidden: false,
+    })
   })
 
   it('actions cover the declared write set', () => {
@@ -33,6 +39,9 @@ describe('createChatStore', () => {
     expect(store.store.getSnapshot().inspect).toEqual({ callId: 'c1' })
     store.actions.setInspect(null)
     expect(store.store.getSnapshot().inspect).toBeNull()
+
+    store.actions.setIndexHidden(true)
+    expect(store.store.getSnapshot().indexHidden).toBe(true)
   })
 
   it('persists per scope key and rehydrates a fresh instance', () => {
@@ -49,6 +58,8 @@ describe('createChatStore', () => {
     const again = createChatStore().create('sess-1')
     expect(again.store.getSnapshot().draft).toBe('draft for one')
     expect(again.store.getSnapshot().selection).toEqual({ turnSeq: 1 })
+    s1.actions.setIndexHidden(true)
+    expect(createChatStore().create('sess-1').store.getSnapshot().indexHidden).toBe(true)
 
     // A sibling scope starts clean.
     const other = createChatStore().create('sess-2')

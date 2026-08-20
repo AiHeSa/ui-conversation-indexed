@@ -17,7 +17,36 @@ interface IndexTurn {
 }
 
 function sameIndex(left: readonly IndexTurn[], right: readonly IndexTurn[]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+  if (left.length !== right.length) return false
+  return left.every((turn, index) => {
+    const other = right[index]
+    if (
+      other === undefined || turn.turn !== other.turn || turn.targetId !== other.targetId ||
+      turn.label !== other.label || turn.headings.length !== other.headings.length
+    ) return false
+    return turn.headings.every((heading, headingIndex) => {
+      const otherHeading = other.headings[headingIndex]
+      return otherHeading !== undefined && heading.id === otherHeading.id &&
+        heading.depth === otherHeading.depth && heading.label === otherHeading.label
+    })
+  })
+}
+
+const INDEX_HEADING_SELECTOR = 'h1, h2, h3'
+const INDEX_STRUCTURE_SELECTOR = '[data-chat-flow-key], h1, h2, h3'
+
+/** Whether one DOM node is or contains transcript structure represented by the index. */
+function containsIndexStructure(node: Node): boolean {
+  if (!(node instanceof Element)) return false
+  return node.matches(INDEX_STRUCTURE_SELECTOR) || node.querySelector(INDEX_STRUCTURE_SELECTOR) !== null
+}
+
+/** Whether a mutation can alter turn cards or their H1-H3 entries. */
+function affectsIndex(record: MutationRecord): boolean {
+  const parent = record.target instanceof Element ? record.target : record.target.parentElement
+  if (parent?.closest(INDEX_HEADING_SELECTOR) !== null) return true
+  if (record.type !== 'childList') return false
+  return [...record.addedNodes, ...record.removedNodes].some(containsIndexStructure)
 }
 
 function targetById(root: HTMLElement, id: string): HTMLElement | null {
@@ -68,16 +97,21 @@ function scanIndex(root: HTMLElement, turnLabel: (turn: string) => string): Inde
 }
 
 /** Wide-screen, turn-card index over the rendered conversation and its H1-H3 headings. */
-export function ConversationIndex({ flowRef, revision, t }: {
+export function ConversationIndex({ flowRef, revision, hidden, onToggle, t }: {
   /** The rendered Chat flow whose rows and semantic headings are indexed. */
   flowRef: RefObject<HTMLDivElement>
   /** Flow-order identity used to rescan synchronously after paging or a new row. */
   revision: readonly string[]
+  /** Whether the persisted reader preference has collapsed the index. */
+  hidden: boolean
+  /** Toggle the persisted visibility preference. */
+  onToggle: () => void
   /** Conversation locale translator. */
   t: ChatViewSlotProps['t']
 }) {
   const [turns, setTurns] = useState<readonly IndexTurn[]>([])
   const timerRef = useRef<number | undefined>()
+  const scanFrameRef = useRef<number | undefined>()
 
   useLayoutEffect(() => {
     const flow = flowRef.current
@@ -87,15 +121,50 @@ export function ConversationIndex({ flowRef, revision, t }: {
       setTurns(current => sameIndex(current, next) ? current : next)
     }
     update()
-    const observer = new MutationObserver(update)
+    // A hidden index only needs the structural scan above so its restore
+    // control remains available. It does not observe streaming DOM changes.
+    if (hidden) return
+    const scheduleUpdate = (): void => {
+      if (scanFrameRef.current !== undefined) return
+      scanFrameRef.current = window.requestAnimationFrame(() => {
+        scanFrameRef.current = undefined
+        update()
+      })
+    }
+    const observer = new MutationObserver((records) => {
+      if (records.some(affectsIndex)) scheduleUpdate()
+    })
     observer.observe(flow, { childList: true, characterData: true, subtree: true })
     return () => {
       observer.disconnect()
-      if (timerRef.current !== undefined) window.clearTimeout(timerRef.current)
+      if (scanFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(scanFrameRef.current)
+        scanFrameRef.current = undefined
+      }
     }
-  }, [flowRef, revision, t])
+  }, [flowRef, hidden, revision, t])
+
+  useLayoutEffect(() => () => {
+    if (timerRef.current !== undefined) window.clearTimeout(timerRef.current)
+  }, [])
 
   if (turns.length === 0) return null
+
+  if (hidden) {
+    return (
+      <nav className={css.collapsed} aria-label={t('chat.index.title')}>
+        <button
+          className={css.show}
+          type="button"
+          title={t('chat.index.show')}
+          aria-label={t('chat.index.show')}
+          onClick={onToggle}
+        >
+          {t('chat.index.shortTitle')}
+        </button>
+      </nav>
+    )
+  }
 
   const locate = (id: string): void => {
     const flow = flowRef.current
@@ -114,7 +183,18 @@ export function ConversationIndex({ flowRef, revision, t }: {
 
   return (
     <nav className={css.index} aria-label={t('chat.index.title')}>
-      <div className={css.title}>{t('chat.index.title')}</div>
+      <div className={css.header}>
+        <div className={css.title}>{t('chat.index.title')}</div>
+        <button
+          className={css.hide}
+          type="button"
+          title={t('chat.index.hide')}
+          aria-label={t('chat.index.hide')}
+          onClick={onToggle}
+        >
+          {t('chat.index.hideShort')}
+        </button>
+      </div>
       <div className={css.cards}>
         {turns.map((turn, index) => (
           <section className={css.card} key={turn.turn}>

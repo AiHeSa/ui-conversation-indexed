@@ -1,4 +1,5 @@
-.index {
+.index,
+.collapsed {
   display: none;
 }
 
@@ -15,14 +16,64 @@
     overflow: hidden;
     pointer-events: auto;
   }
+
+  .collapsed {
+    position: sticky;
+    top: 16px;
+    z-index: 2;
+    align-self: start;
+    display: flex;
+    justify-content: center;
+    width: 44px;
+    pointer-events: auto;
+  }
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 10px;
 }
 
 .title {
-  flex: none;
-  padding: 0 4px 10px;
   color: var(--dsw-alias-label-caption);
   font: var(--dsw-font-xs-13);
   font-weight: 500;
+}
+
+.hide,
+.show {
+  border: 0;
+  border-radius: 5px;
+  color: var(--dsw-alias-label-caption);
+  background: transparent;
+  font: var(--dsw-font-xs-13);
+  cursor: pointer;
+}
+
+.hide {
+  flex: none;
+  padding: 2px 4px;
+}
+
+.show {
+  width: 40px;
+  padding: 5px 2px;
+}
+
+.hide:hover,
+.show:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.hide:focus-visible,
+.show:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
 }
 
 .cards {

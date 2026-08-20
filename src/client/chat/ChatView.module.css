@@ -26,6 +26,11 @@
     gap: 24px;
     padding-right: 24px;
   }
+
+  .layout[data-index-hidden='true'] {
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px;
+  }
 }
 
 .scroll {

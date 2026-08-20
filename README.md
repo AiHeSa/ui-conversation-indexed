@@ -33,9 +33,11 @@ The index provides:
 - reduced-motion support through `prefers-reduced-motion`;
 - a short visual marker on the destination after navigation;
 - automatic refresh while an answer streams or earlier history is prepended;
+- automatic anchored paging when the **Load earlier** control enters the visible scroll area;
+- a Hide control that collapses the index to a compact restore button and persists the preference in browser local storage;
 - an independently scrollable index with its scrollbar visually hidden.
 
-The index reads the existing rendered DOM instead of parsing Markdown again. This keeps GFM, math, streaming, and future Markdown behavior under the original renderer.
+The index reads the existing rendered DOM instead of parsing Markdown again. This keeps GFM, math, streaming, and future Markdown behavior under the original renderer. During streaming it ignores ordinary text mutations, reacts only to turn or H1-H3 structure changes, and coalesces rescans to one animation frame so the index cannot block transcript rendering on long conversations. Hiding the index also suspends its streaming observer.
 
 ### Cache-hit percentage formatting
 
@@ -61,13 +63,13 @@ The repeated prompt is admitted as a new queued turn. It does not delete, edit, 
 
 ### What was not changed
 
-The original conversation behavior remains intact, including the conversation skeleton, chat rows, composer, queue, approval UI, details shell, session statistics, tool slots, plugin slots, streaming behavior, and paging. The conversation controller is extended only with the prompt-replay path described above.
+The original conversation behavior remains intact, including the conversation skeleton, chat rows, composer, queue, approval UI, details shell, session statistics, tool slots, plugin slots, and streaming behavior. Paging retains its semantic scroll anchor while adding the visible-trigger behavior described above. The conversation controller is extended only with the prompt-replay path described above.
 
 The index does not:
 
 - index history that has not been loaded into the page;
 - include `H4` through `H6` headings;
-- add search or persisted index preferences;
+- add search;
 - replace the application-level Tool details panel;
 - add any remote service or server-side behavior.
 

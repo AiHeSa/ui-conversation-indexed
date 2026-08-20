@@ -29,4 +29,6 @@ export interface ChatStoreState {
    * persisted snapshots from before this field rehydrate without it.
    */
   inspect: { callId: CallId } | null
+  /** Whether the right-side conversation index is collapsed. */
+  indexHidden: boolean
 }
